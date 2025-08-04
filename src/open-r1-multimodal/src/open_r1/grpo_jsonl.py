@@ -928,7 +928,7 @@ def main(script_args, training_args, model_args):
     # Load the VLM module
     vlm_module_cls = get_vlm_module(model_args.model_name_or_path)
     print("using vlm module:", vlm_module_cls.__name__)
-    question_prompt = vlm_module_cls.get_question_template(task_type=script_args.task_type)
+    # question_prompt = vlm_module_cls.get_question_template(task_type=script_args.task_type)
 
     # Get reward functions 
     if script_args.is_reward_customized_from_vlm_module:
@@ -991,37 +991,53 @@ def main(script_args, training_args, model_args):
     dataset = Dataset.from_list(all_data)
 
     def make_conversation_from_jsonl(example):
-        if 'image_path' in example and example['image_path'] is not None:
-            assert all(os.path.exists(p) for p in example['image_path']), f"Image paths do not exist: {example['image_path']}"
-            # Don't load image here, just store the path
-            return {
-                'image_path': [p for p in example['image_path']],  # Store path instead of loaded image
-                'problem': example['problem'],
-                'solution': f"<answer> {example['solution']} </answer>",
-                'accu_reward_method': example['accu_reward_method'],
-                'prompt': [{
-                    'role': 'user',
-                    'content': [
-                        *({'type': 'image', 'text': None} for _ in range(len(example['image_path']))),
-                        {'type': 'text', 'text': question_prompt.format(Question=example['problem'])}
-                    ]
-                }]
-            }
-        else:
-            return {
-                'problem': example['problem'],
-                'solution': f"<answer> {example['solution']} </answer>",
-                'accu_reward_method': example['accu_reward_method'],
-                'prompt': [{
-                    'role': 'user',
-                    'content': [
-                        {'type': 'text', 'text': question_prompt.format(Question=example['problem'])}
-                    ]
-                }]
-            }
+        assert all(os.path.exists(p) for p in example['image_path']), f"Image paths do not exist: {example['image_path']}"
+
+        # TODO: remove hardcoding
+        VIEW_ORDER = [
+            (0, 'front view'),
+            (1, 'front-left view'),
+            (2, 'front-right view')
+        ]
+
+        user_blocks = []
+        for i, curr_jpegs in enumerate(example['image_path']):  # TODO: add support for multi-frame input
+            user_blocks.append({"type": "text", "text": f"{VIEW_ORDER[i][1]}, t=0.0s"})
+            # https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct#image-resolution-for-performance-boost
+            user_blocks.append({"type": "image",
+                                "text": None})
+            user_blocks.append({"type": "text", "text": ", "})
+        user_blocks[-1]["text"] = ". "
+
+        # tail = f"The ego vehicle's intent is {example['intent']}. "
+        # user_blocks.append({"type": "text", "text": tail})
+
+        # tail of input context
+        tail = f"The 4-second historical [x,y] trajectory is {example['hist']}. "
+        user_blocks.append({"type": "text", "text": tail})
+
+        tail = "Given the input, predict the optimal 5-second future trajectory. Future trajectory: "
+        user_blocks.append({"type": "text", "text": tail})
+
+        processed_example = {
+            "image_path": example["image_path"],  # keep as list/str exactly as it was
+            "scenario_id": example["scenario_id"],  # scalar, not wrapped in […]  # TODO: add more stuff here?
+            "targets": example["targets"],
+            "best_pref_traj": example["best_pref_traj"],
+            "split": example["split"],
+            "problem": example["problem"],
+            "solution": example["solution"],
+            "accu_reward_method": example["accu_reward_method"],
+            "prompt": [
+                {"role": "system", "content": [{"type": "text", "text": example["system"]}]},
+                {"role": "user", "content": user_blocks},
+            ],
+        }
+
+        return processed_example
 
     # Map the conversations
-    dataset = dataset.map(make_conversation_from_jsonl, num_proc=8)
+    dataset = dataset.map(make_conversation_from_jsonl, num_proc=8)  # TODO: can extend make_conversation_from_jsonl and then use partial here
 
     # Split dataset for validation if requested
     splits = {'train': dataset}

@@ -1,9 +1,13 @@
+import re
+
+import numpy as np
 from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoProcessor
 from typing import Dict, Any, Union
 from trl.data_utils import maybe_apply_chat_template
 import torch
 from copy import deepcopy
 from open_r1.vlm_modules.vlm_module import VLMBaseModule
+from open_r1.vlm_modules.waymo_helpers import compute_rater_feedback_scores, compute_ade
 from PIL import Image
 
 class Qwen2VLModule(VLMBaseModule):
@@ -83,7 +87,103 @@ class Qwen2VLModule(VLMBaseModule):
                 return SYSTEM_PROMPT + '\n' + "{Question}"
             case _:
                 return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
-            
+
+    @staticmethod
+    def waymo_format_reward(completions, **kwargs):
+        FLOAT_RE = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+
+        rewards = []
+        for completion in completions:
+            blocks = re.findall(r'[\[\(]\s*([^]\)]+?)\s*[\]\)]', completion[0]['content'])
+
+            valid = True
+            if len(blocks) != 5:
+                valid = False
+
+            for b in blocks:
+                nums = re.findall(FLOAT_RE, b)
+                if len(nums) != 2:
+                    valid = False
+                    break
+
+            rewards.append(1.0 if valid else 0.0)
+
+        return rewards
+
+    @staticmethod
+    def waymo_rfs_reward(completions, **kwargs):
+        FLOAT_RE = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+
+        rewards = []
+        for i, completion in enumerate(completions):
+            blocks = re.findall(r'[\[\(]\s*([^]\)]+?)\s*[\]\)]', completion[0]['content'])
+
+            valid = True
+            if len(blocks) != 5:
+                valid = False
+
+            coords = []
+            for b in blocks:
+                nums = re.findall(FLOAT_RE, b)
+                if len(nums) != 2:
+                    valid = False
+                    break
+                coords.append(tuple(map(float, nums)))
+
+            if valid:
+                trajectory = np.asarray(coords, dtype=np.float32)
+                pred_zeros = np.zeros((20, 2))
+                pred_zeros[3::4] = trajectory
+                scenario_id, seq = kwargs['scenario_id'][i].split("-")
+
+                unnormalized_reward = compute_rater_feedback_scores(pred_zeros, scenario_id, seq)
+                normalized_reward = (float(unnormalized_reward[0]) - 4) / 6
+
+                rewards.append(normalized_reward)
+            else:
+                rewards.append(0)
+
+        return rewards
+
+    @staticmethod
+    def waymo_ade_reward(completions, **kwargs):
+        FLOAT_RE = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+        delta = 2  # normalization params from AutoVLA paper
+        kappa = 10
+
+        rewards = []
+        for i, completion in enumerate(completions):
+            blocks = re.findall(r'[\[\(]\s*([^]\)]+?)\s*[\]\)]', completion[0]['content'])
+
+            valid = True
+            if len(blocks) != 5:
+                valid = False
+
+            coords = []
+            for b in blocks:
+                nums = re.findall(FLOAT_RE, b)
+                if len(nums) != 2:
+                    valid = False
+                    break
+                coords.append(tuple(map(float, nums)))
+
+            if valid:
+                trajectory = np.asarray(coords, dtype=np.float32)
+                pred_zeros = np.zeros((20, 2))
+                pred_zeros[3::4] = trajectory
+
+                targets = kwargs['targets'][i]
+                # best_pref_traj = kwargs['best_pref_traj'][i]
+
+                unnormalized_reward = compute_ade(pred_zeros, targets)
+                normalized_reward = (delta - float(unnormalized_reward)) / kappa
+
+                rewards.append(normalized_reward)
+            else:
+                rewards.append(0)
+
+        return rewards
+
     @staticmethod
     def format_reward_rec(completions, **kwargs):
         """Check if the Qwen model output matches a specific format."""
@@ -177,17 +277,24 @@ class Qwen2VLModule(VLMBaseModule):
 
     @staticmethod
     def select_reward_func(func: str, task_type: str):
-        if func == "accuracy":
-            match task_type:
-                case "rec":
-                    return Qwen2VLModule.iou_reward
-                case _:
-                    raise ValueError(f"Unsupported reward function: {func}")
+        if func == "rfs":
+            return Qwen2VLModule.waymo_rfs_reward
+        elif func == "ade":
+            return Qwen2VLModule.waymo_ade_reward
         elif func == "format":
-            match task_type:
-                case "rec":
-                    return Qwen2VLModule.format_reward_rec
-                case _:
-                    raise ValueError(f"Unsupported reward function: {func}")
+            return Qwen2VLModule.waymo_format_reward
+
+        # elif func == "accuracy":
+        #     match task_type:
+        #         case "rec":
+        #             return Qwen2VLModule.iou_reward
+        #         case _:
+        #             raise ValueError(f"Unsupported reward function: {func}")
+        # elif func == "format":
+        #     match task_type:
+        #         case "rec":
+        #             return Qwen2VLModule.format_reward_rec
+        #         case _:
+        #             raise ValueError(f"Unsupported reward function: {func}")
         else:
             raise ValueError(f"Unsupported reward function: {func}")
