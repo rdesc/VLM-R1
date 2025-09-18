@@ -3,8 +3,8 @@ export REPO_HOME="${PROJECT_ROOT}" # TODO: change this to your own
 echo "REPO_HOME: $REPO_HOME"
 # on remote
 data_paths="${REPO_HOME}/src/open-r1-multimodal/data_jsonl/gui_multi-image.jsonl" 
-image_folders="/data9/shz/project/vlm-r1/VLM-R1/images/gui_multi-image"
-model_path="/data9/shz/ckpt/Qwen2.5-VL-3B-Instruct"
+image_folders="/home/jovyan/workspace/waymo-e2e-challenge-dev/submodules/VLM-R1/sample_data/gui_multi-image"
+model_path="Qwen/Qwen2.5-VL-3B-Instruct"
 is_reward_customized_from_vlm_module=False
 reward_methods="all_match"  
 echo "data_paths: $data_paths"
@@ -20,9 +20,8 @@ mkdir -p ${REPO_HOME}/runs/${EXP_NAME}/log
 export LOG_PATH="${REPO_HOME}/runs/${EXP_NAME}/log/debug_log.$(date +%Y-%m-%d-%H-%M-%S).txt"
 MAX_STEPS=1200 # TODO: change this to your own max steps
 
-# export WANDB_DISABLED=true
-# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6
-torchrun --nproc_per_node="8" \
+export WANDB_DISABLED=true
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node="1" \
     --nnodes="1" \
     --node_rank="0" \
     --master_addr="127.0.0.1" \
