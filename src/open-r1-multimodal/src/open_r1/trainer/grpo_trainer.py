@@ -37,6 +37,7 @@ from transformers import (
     Trainer,
     TrainerCallback,
     is_wandb_available,
+    AutoConfig, PretrainedConfig,  # fix for config error when loading model
 )
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from transformers.utils import is_peft_available
@@ -251,6 +252,24 @@ class VLMGRPOTrainer(Trainer):
         model_init_kwargs["use_cache"] = (
             False if args.gradient_checkpointing else model_init_kwargs.get("use_cache")
         )
+        
+        config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        # FIX dict-based configs
+        if hasattr(config, "text_config") and isinstance(config.text_config, dict):
+            print("Fixing text_config (was dict)...")
+            config.text_config = PretrainedConfig.from_dict(config.text_config)
+
+        if hasattr(config, "vision_config") and isinstance(config.vision_config, dict):
+            print("Fixing vision_config (was dict)...")
+            config.vision_config = PretrainedConfig.from_dict(config.vision_config)
+        
+        model_init_kwargs["config"] = config
+        
+        # --- REMOVE use_cache before calling __init__ / from_pretrained ---
+        if "use_cache" in model_init_kwargs:
+            print("Removing 'use_cache' from model_init_kwargs to avoid __init__ error")
+            model_init_kwargs.pop("use_cache")
+                
         model_cls = self.vlm_module.get_model_class(model_id, model_init_kwargs)
         model = model_cls.from_pretrained(model_id, **model_init_kwargs)
 
@@ -298,7 +317,8 @@ class VLMGRPOTrainer(Trainer):
             # If beta is 0.0, the reference model is not needed
             self.ref_model = None
         elif is_deepspeed_zero3_enabled():
-            self.ref_model = AutoModelForCausalLM.from_pretrained(model_id, **model_init_kwargs)
+            print("model_init_kwargs", model_init_kwargs)
+            self.ref_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, **model_init_kwargs)
         elif is_peft_model(model):
             # If PEFT is used, the reference model is not needed since the adapter can be disabled
             # to revert to the initial model.

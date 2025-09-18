@@ -1,4 +1,5 @@
 import re
+import requests
 
 import numpy as np
 from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoProcessor
@@ -60,7 +61,7 @@ class Qwen2VLModule(VLMBaseModule):
                 padding=padding,
                 padding_side=padding_side,
                 add_special_tokens=add_special_tokens)
-            additional_output = [{'image_grid_thw': image_grid_thw} for image_grid_thw in prompt_inputs['image_grid_thw']]
+            # additional_output = [{'image_grid_thw': image_grid_thw} for image_grid_thw in prompt_inputs['image_grid_thw']]
         else:
             prompt_inputs = processing_class(
                 text=prompts_text,
@@ -100,11 +101,12 @@ class Qwen2VLModule(VLMBaseModule):
             if len(blocks) != 5:
                 valid = False
 
-            for b in blocks:
-                nums = re.findall(FLOAT_RE, b)
-                if len(nums) != 2:
-                    valid = False
-                    break
+            if valid:
+                for b in blocks:
+                    nums = re.findall(FLOAT_RE, b)
+                    if len(nums) != 2:
+                        valid = False
+                        break
 
             rewards.append(1.0 if valid else 0.0)
 
@@ -172,13 +174,51 @@ class Qwen2VLModule(VLMBaseModule):
                 pred_zeros = np.zeros((20, 2))
                 pred_zeros[3::4] = trajectory
 
-                targets = kwargs['targets'][i]
+                targets = kwargs['future_traj'][i]
                 # best_pref_traj = kwargs['best_pref_traj'][i]
 
                 unnormalized_reward = compute_ade(pred_zeros, targets)
                 normalized_reward = (delta - float(unnormalized_reward)) / kappa
 
                 rewards.append(normalized_reward)
+            else:
+                rewards.append(0)
+
+        return rewards
+
+    @staticmethod
+    def navsim_pdms_reward(completions, **kwargs):
+        FLOAT_RE = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+
+        rewards = []
+        for i, completion in enumerate(completions):
+            blocks = re.findall(r'[\[\(]\s*([^]\)]+?)\s*[\]\)]', completion[0]['content'])
+
+            valid = True
+            if len(blocks) != 5:
+                valid = False
+
+            if valid:
+                coords = []
+                for b in blocks:
+                    nums = re.findall(FLOAT_RE, b)
+                    if len(nums) != 2:
+                        valid = False
+                        break
+                    coords.append(tuple(map(float, nums)))
+
+            if valid:
+                trajectory = np.asarray(coords, dtype=np.float32)
+                token, _ = kwargs['scenario_id'][i].split("-")
+                payload = {"pred": trajectory.tolist(), "token": token}
+                try:
+                    response = requests.post("http://localhost:8000/reward", json=payload)
+                except requests.exceptions.ConnectionError as e:
+                    print("Error: Could not connect to the reward server at http://localhost:8000/reward. Is the reward server running?")
+                    raise e
+                curr_reward = response.json()["reward"]
+
+                rewards.append(curr_reward)
             else:
                 rewards.append(0)
 
@@ -283,6 +323,8 @@ class Qwen2VLModule(VLMBaseModule):
             return Qwen2VLModule.waymo_ade_reward
         elif func == "format":
             return Qwen2VLModule.waymo_format_reward
+        elif func == "pdms":
+            return Qwen2VLModule.navsim_pdms_reward
 
         # elif func == "accuracy":
         #     match task_type:

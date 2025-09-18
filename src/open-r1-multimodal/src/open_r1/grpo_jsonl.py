@@ -928,7 +928,6 @@ def main(script_args, training_args, model_args):
     # Load the VLM module
     vlm_module_cls = get_vlm_module(model_args.model_name_or_path)
     print("using vlm module:", vlm_module_cls.__name__)
-    # question_prompt = vlm_module_cls.get_question_template(task_type=script_args.task_type)
 
     # Get reward functions 
     if script_args.is_reward_customized_from_vlm_module:
@@ -973,71 +972,50 @@ def main(script_args, training_args, model_args):
                         del item['image'] # remove the image column so that it can be loaded later
                     else:
                         raise ValueError(f"Unsupported image type: {type(item['image'])}")
-                # Remove immediate image loading
-                item['problem'] = item['conversations'][0]['value'].replace('<image>', '')
                 
+                item['system'] = item['conversations'][0]['value']
+                item['problem'] = item['conversations'][1]['value']
                 # Handle solution that could be a float or string
-                solution_value = item['conversations'][1]['value']
-                if isinstance(solution_value, str):
-                    item['solution'] = solution_value.replace('<answer>', '').replace('</answer>', '').strip()
-                else:
-                    # If it's a float or other non-string type, keep it as is
-                    item['solution'] = str(solution_value)
-                
+                solution_value = item['conversations'][2]['value']
+                item['solution'] = str(solution_value)
                 del item['conversations']
                 item['accu_reward_method'] = item.get('accu_reward_method', accu_reward_method) # if accu_reward_method is in the data jsonl, use the value in the data jsonl, otherwise use the defined value
+                
                 all_data.append(item)
 
     dataset = Dataset.from_list(all_data)
 
     def make_conversation_from_jsonl(example):
         assert all(os.path.exists(p) for p in example['image_path']), f"Image paths do not exist: {example['image_path']}"
-
-        # TODO: remove hardcoding
-        VIEW_ORDER = [
-            (0, 'front view'),
-            (1, 'front-left view'),
-            (2, 'front-right view')
-        ]
-
-        user_blocks = []
-        for i, curr_jpegs in enumerate(example['image_path']):  # TODO: add support for multi-frame input
-            user_blocks.append({"type": "text", "text": f"{VIEW_ORDER[i][1]}, t=0.0s"})
-            # https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct#image-resolution-for-performance-boost
-            user_blocks.append({"type": "image",
-                                "text": None})
-            user_blocks.append({"type": "text", "text": ", "})
-        user_blocks[-1]["text"] = ". "
-
-        # tail = f"The ego vehicle's intent is {example['intent']}. "
-        # user_blocks.append({"type": "text", "text": tail})
-
-        # tail of input context
-        tail = f"The 4-second historical [x,y] trajectory is {example['hist']}. "
-        user_blocks.append({"type": "text", "text": tail})
-
-        tail = "Given the input, predict the optimal 5-second future trajectory. Future trajectory: "
-        user_blocks.append({"type": "text", "text": tail})
-
+        
+        # IMPORTANT!!! remove the bad keys in example["user_blocks"]
+        for item in example["user_blocks"]:
+            if item["type"] == "text":
+                item.pop("image")
+                item.pop("max_pixels")
+                item.pop("min_pixels")
+            if item["type"] == "image":
+                item.pop("image")
+                
         processed_example = {
-            "image_path": example["image_path"],  # keep as list/str exactly as it was
-            "scenario_id": example["scenario_id"],  # scalar, not wrapped in […]  # TODO: add more stuff here?
-            "targets": example["targets"],
-            "best_pref_traj": example["best_pref_traj"],
-            "split": example["split"],
-            "problem": example["problem"],
-            "solution": example["solution"],
+            "image_path"        : example["image_path"],     # keep as list/str exactly as it was
+            "scenario_id"       : example["scenario_id"],    # scalar, not wrapped in […]
+            "future_traj"       : example.get("future_traj"),
+            "best_pref_traj"    : example.get("best_pref_traj"),
+            "split"             : example["split"],
+            "problem"           : example["problem"],
+            "solution"          : example["solution"],
             "accu_reward_method": example["accu_reward_method"],
-            "prompt": [
-                {"role": "system", "content": [{"type": "text", "text": example["system"]}]},
-                {"role": "user", "content": user_blocks},
-            ],
+            "prompt"            : [
+            {"role": "system", "content": [{"type": "text", "text": example["system"]}]},
+            {"role": "user",   "content": example["user_blocks"]},
+        ],
         }
-
+        
         return processed_example
 
     # Map the conversations
-    dataset = dataset.map(make_conversation_from_jsonl, num_proc=8)  # TODO: can extend make_conversation_from_jsonl and then use partial here
+    dataset = dataset.map(make_conversation_from_jsonl, num_proc=32)
 
     # Split dataset for validation if requested
     splits = {'train': dataset}
