@@ -3,9 +3,10 @@ RUN_NAME=$1
 DATA_PATH=$2
 MODEL_PATH=$3
 MAX_STEPS=$4
+IMAGE_FOLDERS=$5
 
-if [ -z "$RUN_NAME" ] || [ -z "$DATA_PATH" ] || [ -z "$MODEL_PATH" ] || [ -z "$MAX_STEPS" ]; then
-  echo "Usage: $0 <RUN_NAME> <DATA_PATH> <MODEL_PATH> <MAX_STEPS>"
+if [ -z "$RUN_NAME" ] || [ -z "$DATA_PATH" ] || [ -z "$MODEL_PATH" ] || [ -z "$MAX_STEPS" ] || [ -z "$IMAGE_FOLDERS" ]; then
+  echo "Usage: $0 <RUN_NAME> <DATA_PATH> <MODEL_PATH> <MAX_STEPS> <IMAGE_FOLDERS>"
   exit 1
 fi
 
@@ -15,7 +16,6 @@ if [[ "$MODEL_PATH" != *"Qwen2.5-VL"* ]]; then
   exit 1
 fi
 
-IMAGE_FOLDERS="dummy"  # not used right now, since we use global paths
 SAVE_ROOT=/home/jovyan/workspace/saves/rl/$RUN_NAME
 LOGFILE=/home/jovyan/shared/RodDeSc/experiments/logs/$RUN_NAME.out
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
