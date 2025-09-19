@@ -74,7 +74,7 @@ torchrun --nproc_per_node="8" \
     --max_completion_length 2048 \
     --max_prompt_length 2048 \
     --max_pixels 262144 \
-    --reward_funcs pdms format \
+    --reward_funcs pdms format ade \
     --beta 0.04 \
     --report_to wandb \
     --dataset-name this_is_not_used \

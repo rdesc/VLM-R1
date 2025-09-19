@@ -8,7 +8,7 @@ from trl.data_utils import maybe_apply_chat_template
 import torch
 from copy import deepcopy
 from open_r1.vlm_modules.vlm_module import VLMBaseModule
-from open_r1.vlm_modules.waymo_helpers import compute_rater_feedback_scores, compute_ade
+from open_r1.vlm_modules.waymo_helpers import compute_rater_feedback_scores
 from PIL import Image
 
 class Qwen2VLModule(VLMBaseModule):
@@ -170,16 +170,12 @@ class Qwen2VLModule(VLMBaseModule):
                 coords.append(tuple(map(float, nums)))
 
             if valid:
-                trajectory = np.asarray(coords, dtype=np.float32)
-                pred_zeros = np.zeros((20, 2))
-                pred_zeros[3::4] = trajectory
+                pred = np.asarray(coords, dtype=np.float32)  # (5, 2)
+                gt = np.asarray(kwargs['future_traj'][i], dtype=np.float32)  # (5, 2)
 
-                targets = kwargs['future_traj'][i]
-                # best_pref_traj = kwargs['best_pref_traj'][i]
+                ade = np.mean(np.linalg.norm(pred - gt, axis=1))
 
-                unnormalized_reward = compute_ade(pred_zeros, targets)
-                normalized_reward = (delta - float(unnormalized_reward)) / kappa
-
+                normalized_reward = (delta - float(ade)) / kappa
                 rewards.append(normalized_reward)
             else:
                 rewards.append(0)

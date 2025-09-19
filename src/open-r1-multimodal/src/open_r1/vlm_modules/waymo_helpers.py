@@ -49,20 +49,3 @@ def get_interp_pred(pred):
     pred = xy_dense
 
     return pred
-
-
-def compute_ade(prediction, reference):
-    """
-    Computes the Average Displacement Error (ADE) and Final Displacement Error (FDE)
-    between the predicted trajectory and the ground truth trajectory.
-
-    Args:
-        prediction (np.ndarray): Predicted trajectory of shape (N, 2) where N is the number of time steps.
-        reference (np.ndarray): Reference trajectory of shape (N, 2).
-
-    Returns:
-        tuple: ADE
-    """
-    ade = np.mean(np.linalg.norm(get_interp_pred(prediction[3::4]) - reference, axis=1))
-
-    return ade
