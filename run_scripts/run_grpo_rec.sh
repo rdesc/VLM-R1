@@ -28,6 +28,7 @@ echo "Run Name          : $RUN_NAME"
 echo "Data Path         : $DATA_PATH"
 echo "Model Path        : $MODEL_PATH"
 echo "Max Steps         : $MAX_STEPS"
+echo "Image Folders     : $IMAGE_FOLDERS"
 echo "Save Root         : $SAVE_ROOT"
 echo "Log File          : $LOGFILE"
 echo "Repo home         : $REPO_HOME"
@@ -60,7 +61,7 @@ torchrun --nproc_per_node="8" \
     --image_folders $IMAGE_FOLDERS \
     --is_reward_customized_from_vlm_module True \
     --task_type $TASK_TYPE \
-    --per_device_train_batch_size 4 \
+    --per_device_train_batch_size 10 \
     --gradient_accumulation_steps 2 \
     --gradient_checkpointing true \
     --logging_steps 1 \
@@ -70,11 +71,11 @@ torchrun --nproc_per_node="8" \
     --run_name $RUN_NAME \
     --data_seed 42 \
     --save_steps 100 \
-    --num_generations 8 \
+    --num_generations 32 \
     --max_completion_length 2048 \
     --max_prompt_length 2048 \
     --max_pixels 262144 \
-    --reward_funcs pdms format ade \
+    --reward_funcs pdms format \
     --beta 0.04 \
     --report_to wandb \
     --dataset-name this_is_not_used \
