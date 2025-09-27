@@ -207,11 +207,13 @@ class Qwen2VLModule(VLMBaseModule):
                 trajectory = np.asarray(coords, dtype=np.float32)
                 token, _ = kwargs['scenario_id'][i].split("-")
                 payload = {"pred": trajectory.tolist(), "token": token}
-                try:
-                    response = requests.post("http://localhost:8000/reward", json=payload)
-                except requests.exceptions.ConnectionError as e:
-                    print("Error: Could not connect to the reward server at http://localhost:8000/reward. Is the reward server running?")
-                    raise e
+                done=False
+                while not done:
+                    try:
+                        response = requests.post("http://localhost:8000/reward", json=payload, timeout=60)
+                        done = True
+                    except requests.exceptions.ConnectionError as e:
+                        print("Error: Could not connect to the reward server at http://localhost:8000/reward. Is the reward server running?")
                 curr_reward = response.json()["reward"]
 
                 rewards.append(curr_reward)
